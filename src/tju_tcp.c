@@ -1,90 +1,4 @@
 #include "tju_tcp.h"
-#include <stdarg.h>
-
-static FILE* trace_file = NULL;
-static pthread_once_t trace_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static void trace_init_once(void){
-    char hostname[64] = {0};
-    const char* trace_path = NULL;
-
-    if(gethostname(hostname, sizeof(hostname) - 1) != 0){
-        perror("gethostname for trace");
-        return;
-    }
-    if(strcmp(hostname, "client") == 0){
-        trace_path = "/vagrant/tju_tcp/test/client.event.trace";
-    }else if(strcmp(hostname, "server") == 0){
-        trace_path = "/vagrant/tju_tcp/test/server.event.trace";
-    }else{
-        fprintf(stderr, "TRACE: unknown hostname %s\n", hostname);
-        return;
-    }
-
-    trace_file = fopen(trace_path, "w");
-    if(trace_file == NULL){
-        perror("fopen trace file");
-        return;
-    }
-    setvbuf(trace_file, NULL, _IOLBF, 0);
-}
-
-static void trace_event(const char* event, const char* format, ...){
-    struct timeval now;
-    va_list args;
-
-    pthread_once(&trace_once, trace_init_once);
-    if(trace_file == NULL){
-        return;
-    }
-
-    pthread_mutex_lock(&trace_lock);
-    gettimeofday(&now, NULL);
-    fprintf(trace_file, "[%lld] [%s] [",
-            (long long)now.tv_sec * 1000000LL + now.tv_usec, event);
-    va_start(args, format);
-    vfprintf(trace_file, format, args);
-    va_end(args);
-    fprintf(trace_file, "]\n");
-    pthread_mutex_unlock(&trace_lock);
-}
-
-static void trace_packet_event(const char* event, const char* pkt){
-    uint16_t hlen = get_hlen((char*)pkt);
-    uint16_t plen = get_plen((char*)pkt);
-    uint16_t payload_len = plen >= hlen ? plen - hlen : 0;
-
-    trace_event(event, "seq:%u ack:%u flag:%u length:%u",
-                get_seq((char*)pkt), get_ack((char*)pkt),
-                get_flags((char*)pkt), payload_len);
-}
-
-static void trace_send_packet(char* pkt, int packet_len){
-    sendToLayer3(pkt, packet_len);
-    if(packet_len <= MAX_LEN){
-        trace_packet_event("SEND", pkt);
-    }
-}
-
-static void trace_rwnd(uint32_t size){
-    trace_event("RWND", "size:%u", size);
-}
-
-static void trace_swnd(uint32_t size){
-    trace_event("SWND", "size:%u", size);
-}
-
-static void trace_rtts(double sample, double estimated,
-                       double deviation, double timeout){
-    trace_event("RTTS",
-                "SampleRTT:%f EstimatedRTT:%f DeviationRTT:%f TimeoutInterval:%f",
-                sample, estimated, deviation, timeout);
-}
-
-static void trace_delv(uint32_t seq, uint32_t size){
-    trace_event("DELV", "seq:%u size:%u", seq, size);
-}
 
 /*
 创建 TCP socket 
@@ -93,8 +7,6 @@ static void trace_delv(uint32_t seq, uint32_t size){
 */
 tju_tcp_t* tju_socket(){
     tju_tcp_t* sock = (tju_tcp_t*)malloc(sizeof(tju_tcp_t));
-    pthread_once(&trace_once, trace_init_once);
-
     sock->state = CLOSED;
     
     pthread_mutex_init(&(sock->send_lock), NULL);
@@ -218,7 +130,7 @@ int tju_send(tju_tcp_t* sock, const void *buffer, int len){
     msg = create_packet_buf(sock->established_local_addr.port, sock->established_remote_addr.port, seq, 0, 
               DEFAULT_HEADER_LEN, plen, NO_FLAG, 1, 0, data, len);
 
-    trace_send_packet(msg, plen);
+    sendToLayer3(msg, plen);
     
     return 0;
 }
@@ -255,8 +167,7 @@ int tju_recv(tju_tcp_t* sock, void *buffer, int len){
 }
 
 int tju_handle_packet(tju_tcp_t* sock, char* pkt){
-    trace_packet_event("RECV", pkt);
-
+    
     uint32_t data_len = get_plen(pkt) - DEFAULT_HEADER_LEN;
 
     // 把收到的数据放到接受缓冲区
