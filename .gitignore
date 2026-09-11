@@ -31,3 +31,20 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# Microsoft Office temporary files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+# test binaries and local run artifacts
+/test/test
+/test/sender
+/test/receiver
+/test/rdt_client
+/test/rdt_server
+/test/close_server
+/test/test_client
+/test/test_server
+/test/close_client
+/test/*.log
+/test/*.event.trace

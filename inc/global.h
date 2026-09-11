@@ -45,6 +45,11 @@
 #define LAST_ACK 9
 #define TIME_WAIT 10
 
+//TCP 超时常量
+#define HANDSHAKE_INITIAL_RTO_MS 1000
+#define HANDSHAKE_MAX_RTO_MS 60000
+#define HANDSHAKE_MAX_RETRIES 5
+
 // TCP 拥塞控制状态
 #define SLOW_START 0
 #define CONGESTION_AVOIDANCE 1
@@ -95,8 +100,28 @@ typedef struct {
 
 
 // TJU_TCP 结构体 保存TJU_TCP用到的各种数据
-typedef struct {
+typedef struct tju_tcp_t {
 	int state; // TCP的状态
+
+	//初始化握手所需字段
+	uint32_t iss;
+	uint32_t snd_una;
+	uint32_t snd_nxt;
+
+	uint32_t irs;
+	uint32_t rcv_nxt;
+
+	pthread_mutex_t state_lock;
+	pthread_cond_t state_cond;
+
+	pthread_mutex_t accept_lock;
+	pthread_cond_t accept_cond;
+
+	struct tju_tcp_t* accept_head;
+	struct tju_tcp_t* accept_tail;
+	struct tju_tcp_t* accept_next;
+	
+	struct tju_tcp_t* listen_parent;
 
 	tju_sock_addr bind_addr; // 存放bind和listen时该socket绑定的IP和端口
 	tju_sock_addr established_local_addr; // 存放建立连接后 本机的 IP和端口
@@ -113,6 +138,11 @@ typedef struct {
 	pthread_cond_t wait_cond; // 可以被用来唤醒recv函数调用时等待的线程
 
 	window_t window; // 发送和接受窗口
+
+	unsigned int handshake_rto_ms;// 当前握手RTO
+	int handshake_retries;// 当前握手重传次数
+	int handshake_stop;// 握手完成或失败后停止定时器
+	int handshake_retransmitted;// 握手阶段是否发生过重传
 
 } tju_tcp_t;
 
